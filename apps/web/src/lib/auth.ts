@@ -47,21 +47,18 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account, profile }) {
       if (process.env.DATABASE_URL && account?.provider === 'twitter' && profile) {
         try {
-          // Update or create user in our custom users table
+          // Update user with X/Twitter data
           const twitterProfile = profile as any;
 
-          await prisma.user.upsert({
-            where: { xUserId: twitterProfile.data?.id || user.id },
-            create: {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
               xUserId: twitterProfile.data?.id || user.id,
-              xUsername: twitterProfile.data?.username || user.name,
-            },
-            update: {
               xUsername: twitterProfile.data?.username || user.name,
             },
           });
         } catch (error) {
-          console.error('Error creating/updating user:', error);
+          console.error('Error updating user with X data:', error);
         }
       }
       return true;

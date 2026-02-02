@@ -12,7 +12,7 @@ datasource db {
 
 model User {
   id            String        @id @default(uuid())
-  xUserId       String        @unique @map("x_user_id") @db.VarChar(64)
+  xUserId       String?       @unique @map("x_user_id") @db.VarChar(64)
   xUsername     String?       @map("x_username") @db.VarChar(64)
   name          String?
   email         String?       @unique
