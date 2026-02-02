@@ -32,9 +32,9 @@ export const authOptions: NextAuthOptions = {
             });
 
             if (dbUser) {
-              session.user.xUserId = dbUser.xUserId;
-              session.user.xUsername = dbUser.xUsername || undefined;
-              session.user.walletAddress = dbUser.walletAddress || undefined;
+              session.user.xUserId = dbUser.xUserId ?? undefined;
+              session.user.xUsername = dbUser.xUsername ?? undefined;
+              session.user.walletAddress = dbUser.walletAddress ?? undefined;
               session.user.balanceUsdc = dbUser.balanceUsdc.toNumber();
             }
           } catch (error) {
