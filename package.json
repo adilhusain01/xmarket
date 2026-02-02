@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo build",
+    "build": "turbo db:generate && turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
@@ -14,7 +14,8 @@
     "db:push": "turbo db:push",
     "db:migrate": "turbo db:migrate",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
-    "clean": "turbo clean && rm -rf node_modules"
+    "clean": "turbo clean && rm -rf node_modules",
+    "postinstall": "turbo db:generate"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
