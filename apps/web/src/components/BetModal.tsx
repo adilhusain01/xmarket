@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { useBetFlow } from '@/hooks/useBetFlow';
-import { POLYMARKET_GAMMA_API } from '@xmarket/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,9 +37,7 @@ export function BetModal({ isOpen, onClose }: BetModalProps) {
   const fetchMarkets = useCallback(async () => {
     setFetchingMarkets(true);
     try {
-      const res = await fetch(
-        `${POLYMARKET_GAMMA_API}/markets?active=true&order=volume&limit=20`
-      );
+      const res = await fetch('/api/markets');
       if (!res.ok) throw new Error(`Gamma API ${res.status}`);
       const data = await res.json();
       setMarkets(data);
