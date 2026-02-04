@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount } from 'wagmi';
 import { useBetFlow } from '@/hooks/useBetFlow';
+import { getTargetChainName } from '@xmarket/shared';
+
+const TARGET_CHAIN_NAME = getTargetChainName(process.env.NODE_ENV !== 'production');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,7 +223,7 @@ export function BetModal({ isOpen, onClose }: BetModalProps) {
 
             {/* Polygon balance */}
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Polygon USDC balance: <span className="font-semibold">${result.polygonBalance.toFixed(2)}</span>
+              {TARGET_CHAIN_NAME} USDC balance: <span className="font-semibold">${result.polygonBalance.toFixed(2)}</span>
             </p>
 
             {/* Chain scan results */}
@@ -243,7 +246,7 @@ export function BetModal({ isOpen, onClose }: BetModalProps) {
                   Bridge Required
                 </p>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                  <span className="font-medium">{result.sourceChain?.chainName}</span> → Polygon
+                  <span className="font-medium">{result.sourceChain?.chainName}</span> → {TARGET_CHAIN_NAME}
                 </p>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300">
                   Route: {result.bestRoute.steps.join(' → ')}
@@ -265,7 +268,7 @@ export function BetModal({ isOpen, onClose }: BetModalProps) {
             {result.status === 'ready' && (
               <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  ✅ Polygon has enough USDC. Bet placement coming next.
+                  ✅ {TARGET_CHAIN_NAME} has enough USDC. Bet placement coming next.
                 </p>
               </div>
             )}

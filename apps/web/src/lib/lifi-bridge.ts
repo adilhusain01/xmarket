@@ -2,7 +2,12 @@ import { EVM, createConfig, getRoutes, executeRoute } from '@lifi/sdk';
 import type { Route } from '@lifi/types';
 import { parseUnits } from 'viem';
 import type { WalletClient } from 'viem';
-import { USDC_CHAINS, POLYGON_CHAIN_ID } from '@xmarket/shared';
+import { getActiveChains, getTargetChainId, getTargetChainName } from '@xmarket/shared';
+
+const IS_TESTNET = process.env.NODE_ENV !== 'production';
+const USDC_CHAINS = getActiveChains(IS_TESTNET);
+const TARGET_CHAIN_ID = getTargetChainId(IS_TESTNET);
+const TARGET_CHAIN_NAME = getTargetChainName(IS_TESTNET);
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -36,7 +41,7 @@ export async function getBridgeRoutes(
     `Chain ${fromChainId}`;
 
   console.log(
-    `[Bridge] Getting routes: ${fromName} → Polygon for $${amountUsd.toFixed(2)} USDC…`
+    `[Bridge] Getting routes: ${fromName} → ${TARGET_CHAIN_NAME} for $${amountUsd.toFixed(2)} USDC…`
   );
 
   // 1 % buffer so received amount covers the bet after slippage
@@ -45,15 +50,15 @@ export async function getBridgeRoutes(
 
   const { routes } = await getRoutes({
     fromChainId,
-    toChainId: POLYGON_CHAIN_ID,
+    toChainId: TARGET_CHAIN_ID,
     fromTokenAddress: getUsdcAddress(fromChainId),
-    toTokenAddress: getUsdcAddress(POLYGON_CHAIN_ID),
+    toTokenAddress: getUsdcAddress(TARGET_CHAIN_ID),
     fromAmount: amountRaw.toString(),
     fromAddress: userAddress,
   });
 
   if (!routes || routes.length === 0) {
-    console.log(`[Bridge] ✗ No routes found from ${fromName} to Polygon.`);
+    console.log(`[Bridge] ✗ No routes found from ${fromName} to ${TARGET_CHAIN_NAME}.`);
     return [];
   }
 

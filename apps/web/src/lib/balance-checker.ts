@@ -1,15 +1,36 @@
 import { createPublicClient, http, erc20Abi, formatUnits } from 'viem';
-import { mainnet, polygon, arbitrum, base, optimism } from 'viem/chains';
+import {
+  mainnet, polygon, arbitrum, base, optimism,
+  sepolia, polygonAmoy, arbitrumSepolia, baseSepolia, optimismSepolia,
+} from 'viem/chains';
 import type { Chain } from 'viem';
-import { USDC_CHAINS, POLYGON_CHAIN_ID } from '@xmarket/shared';
+import { getActiveChains, getTargetChainId, getTargetChainName } from '@xmarket/shared';
 
-const VIEM_CHAINS: Record<number, Chain> = {
+const IS_TESTNET = process.env.NODE_ENV !== 'production';
+const TARGET_CHAIN_NAME = getTargetChainName(IS_TESTNET);
+
+const VIEM_CHAINS_MAINNET: Record<number, Chain> = {
   1: mainnet,
   137: polygon,
   42161: arbitrum,
   8453: base,
   10: optimism,
 };
+
+const VIEM_CHAINS_TESTNET: Record<number, Chain> = {
+  11155111: sepolia,
+  80002: polygonAmoy,
+  421614: arbitrumSepolia,
+  84532: baseSepolia,
+  11155420: optimismSepolia,
+};
+
+const VIEM_CHAINS: Record<number, Chain> = IS_TESTNET
+  ? VIEM_CHAINS_TESTNET
+  : VIEM_CHAINS_MAINNET;
+
+const USDC_CHAINS = getActiveChains(IS_TESTNET);
+const TARGET_CHAIN_ID = getTargetChainId(IS_TESTNET);
 
 export interface ChainBalance {
   chainId: number;
@@ -78,7 +99,7 @@ export async function getAllUsdcBalances(
 
   console.log(`[BalanceCheck] ── Summary ──`);
   balances.forEach((b) => {
-    const tag = b.chainId === POLYGON_CHAIN_ID ? '  ← destination' : '';
+    const tag = b.chainId === TARGET_CHAIN_ID ? '  ← destination' : '';
     console.log(`  ${b.chainName}: $${b.balance.toFixed(2)}${tag}`);
   });
 
@@ -94,22 +115,22 @@ export function findBestSourceChain(
   balances: ChainBalance[],
   requiredAmount: number
 ): { chain: ChainBalance | null; needsBridge: boolean } {
-  const polygonBal = balances.find((b) => b.chainId === POLYGON_CHAIN_ID);
+  const polygonBal = balances.find((b) => b.chainId === TARGET_CHAIN_ID);
 
   if (polygonBal && polygonBal.balance >= requiredAmount) {
     console.log(
-      `[BalanceCheck] ✓ Polygon has $${polygonBal.balance.toFixed(2)} — sufficient. No bridge needed.`
+      `[BalanceCheck] ✓ ${TARGET_CHAIN_NAME} has $${polygonBal.balance.toFixed(2)} — sufficient. No bridge needed.`
     );
     return { chain: polygonBal, needsBridge: false };
   }
 
   console.log(
-    `[BalanceCheck] ✗ Polygon has $${polygonBal?.balance.toFixed(2) ?? '0.00'} — need $${requiredAmount.toFixed(2)}. Looking for bridge source...`
+    `[BalanceCheck] ✗ ${TARGET_CHAIN_NAME} has $${polygonBal?.balance.toFixed(2) ?? '0.00'} — need $${requiredAmount.toFixed(2)}. Looking for bridge source...`
   );
 
   // Highest-balance non-Polygon chain
   const best = balances.find(
-    (b) => b.chainId !== POLYGON_CHAIN_ID && b.balance > 0
+    (b) => b.chainId !== TARGET_CHAIN_ID && b.balance > 0
   );
 
   if (best) {

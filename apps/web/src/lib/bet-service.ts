@@ -1,5 +1,9 @@
 import type { WalletClient } from 'viem';
-import { POLYGON_CHAIN_ID } from '@xmarket/shared';
+import { getTargetChainId, getTargetChainName } from '@xmarket/shared';
+
+const IS_TESTNET = process.env.NODE_ENV !== 'production';
+const TARGET_CHAIN_ID = getTargetChainId(IS_TESTNET);
+const TARGET_CHAIN_NAME = getTargetChainName(IS_TESTNET);
 import {
   getUsdcBalanceOnChain,
   getAllUsdcBalances,
@@ -51,26 +55,26 @@ export async function prepareBet(
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
   // ── 1. Check Polygon balance ─────────────────────────────────────────
-  console.log(`[BetFlow] Step 1 of 3: Check Polygon USDC balance`);
+  console.log(`[BetFlow] Step 1 of 3: Check ${TARGET_CHAIN_NAME} USDC balance`);
 
   let polygonBalance: ChainBalance;
   try {
-    polygonBalance = await getUsdcBalanceOnChain(POLYGON_CHAIN_ID, walletAddress);
+    polygonBalance = await getUsdcBalanceOnChain(TARGET_CHAIN_ID, walletAddress);
   } catch (err) {
-    console.error(`[BetFlow] ✗ Polygon RPC error:`, err);
+    console.error(`[BetFlow] ✗ ${TARGET_CHAIN_NAME} RPC error:`, err);
     return {
       status: 'error',
       amountUsd,
       polygonBalance: 0,
-      error: 'Failed to check Polygon balance',
+      error: `Failed to check ${TARGET_CHAIN_NAME} balance`,
     };
   }
 
   if (polygonBalance.balance >= amountUsd) {
     console.log(
-      `\n[BetFlow] ✅ Polygon balance $${polygonBalance.balance.toFixed(2)} ≥ $${amountUsd.toFixed(2)}`
+      `\n[BetFlow] ✅ ${TARGET_CHAIN_NAME} balance $${polygonBalance.balance.toFixed(2)} ≥ $${amountUsd.toFixed(2)}`
     );
-    console.log(`[BetFlow] → Ready to place bet directly on Polygon.\n`);
+    console.log(`[BetFlow] → Ready to place bet directly on ${TARGET_CHAIN_NAME}.\n`);
     return {
       status: 'ready',
       amountUsd,
@@ -81,7 +85,7 @@ export async function prepareBet(
 
   // ── 2. Scan every supported chain ────────────────────────────────────
   console.log(
-    `\n[BetFlow] Step 2 of 3: Polygon insufficient ($${polygonBalance.balance.toFixed(2)}). Scanning all chains…`
+    `\n[BetFlow] Step 2 of 3: ${TARGET_CHAIN_NAME} insufficient ($${polygonBalance.balance.toFixed(2)}). Scanning all chains…`
   );
 
   let allBalances: ChainBalance[];
@@ -118,7 +122,7 @@ export async function prepareBet(
 
   // ── 3. Fetch LiFi bridge route ───────────────────────────────────────
   console.log(
-    `\n[BetFlow] Step 3 of 3: Fetch bridge route ${bestChain.chainName} → Polygon`
+    `\n[BetFlow] Step 3 of 3: Fetch bridge route ${bestChain.chainName} → ${TARGET_CHAIN_NAME}`
   );
 
   let bridgeRoutes: BridgeRoute[];
@@ -150,7 +154,7 @@ export async function prepareBet(
       polygonBalance: polygonBalance.balance,
       allBalances,
       sourceChain: bestChain,
-      error: `No bridge route from ${bestChain.chainName} to Polygon`,
+      error: `No bridge route from ${bestChain.chainName} to ${TARGET_CHAIN_NAME}`,
     };
   }
 
@@ -187,7 +191,7 @@ export async function executeBridge(
 
   console.log(`\n[BetFlow] 🔄 User confirmed — executing bridge…`);
   console.log(
-    `[BetFlow]   ${prepared.sourceChain?.chainName} → Polygon | $${prepared.amountUsd.toFixed(2)}`
+    `[BetFlow]   ${prepared.sourceChain?.chainName} → ${TARGET_CHAIN_NAME} | $${prepared.amountUsd.toFixed(2)}`
   );
 
   const result = await executeBridgeRoute(
@@ -197,7 +201,7 @@ export async function executeBridge(
   );
 
   if (result.success) {
-    console.log(`\n[BetFlow] ✅ Bridge initiated. USDC is moving to Polygon…\n`);
+    console.log(`\n[BetFlow] ✅ Bridge initiated. USDC is moving to ${TARGET_CHAIN_NAME}…\n`);
     return { ...prepared, status: 'bridging' };
   }
 
