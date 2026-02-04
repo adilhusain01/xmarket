@@ -7,6 +7,7 @@ import { formatUsdc } from '@xmarket/shared';
 import { AuthButton } from '@/components/AuthButton';
 import { DepositModal } from '@/components/DepositModal';
 import { WithdrawModal } from '@/components/WithdrawModal';
+import { BetModal } from '@/components/BetModal';
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -14,6 +15,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [showBetModal, setShowBetModal] = useState(false);
 
   useEffect(() => {
     if (session) {
@@ -98,8 +100,11 @@ export default function Dashboard() {
         {/* Quick Actions */}
         <div className="card mb-8">
           <h2 className="text-xl font-bold mb-4">Quick Actions</h2>
-          <div className="grid md:grid-cols-2 gap-4">
-            <button onClick={() => setShowDepositModal(true)} className="btn-primary">
+          <div className="grid md:grid-cols-3 gap-4">
+            <button onClick={() => setShowBetModal(true)} className="btn-primary">
+              Place a Bet
+            </button>
+            <button onClick={() => setShowDepositModal(true)} className="btn-secondary">
               Deposit USDC
             </button>
             <button onClick={() => setShowWithdrawModal(true)} className="btn-secondary">
@@ -109,6 +114,7 @@ export default function Dashboard() {
         </div>
 
         {/* Modals */}
+        <BetModal isOpen={showBetModal} onClose={() => setShowBetModal(false)} />
         <DepositModal isOpen={showDepositModal} onClose={() => setShowDepositModal(false)} />
         <WithdrawModal
           isOpen={showWithdrawModal}
