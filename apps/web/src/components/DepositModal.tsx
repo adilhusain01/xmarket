@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useSignMessage } from 'wagmi';
+import { useSession } from 'next-auth/react';
 
 interface DepositModalProps {
   isOpen: boolean;
@@ -10,12 +11,16 @@ interface DepositModalProps {
 
 export function DepositModal({ isOpen, onClose }: DepositModalProps) {
   const { address } = useAccount();
+  const { data: session } = useSession();
+  const { signMessageAsync } = useSignMessage();
   const [depositInfo, setDepositInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setError(null);
       fetchDepositInfo();
     }
   }, [isOpen]);
@@ -27,29 +32,58 @@ export function DepositModal({ isOpen, onClose }: DepositModalProps) {
         const data = await response.json();
         setDepositInfo(data);
       }
-    } catch (error) {
-      console.error('Error fetching deposit info:', error);
+    } catch (err) {
+      console.error('Error fetching deposit info:', err);
     } finally {
       setLoading(false);
     }
   }
 
   async function linkWallet() {
-    if (!address) return;
+    if (!address || !session?.user?.id) return;
 
     setUpdating(true);
+    setError(null);
     try {
-      const response = await fetch('/api/wallet/deposit', {
+      const message = `Link this wallet to Xmarket\n\nUser ID: ${session.user.id}\nAddress: ${address}\nTimestamp: ${Date.now()}`;
+
+      const signature = await signMessageAsync({ message });
+
+      const response = await fetch('/api/wallet/link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: address }),
+        body: JSON.stringify({ address, message, signature }),
       });
 
       if (response.ok) {
         await fetchDepositInfo();
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Failed to link wallet');
       }
-    } catch (error) {
-      console.error('Error linking wallet:', error);
+    } catch (err) {
+      if ((err as Error).message?.includes('User rejected')) {
+        setError('Signature rejected by wallet');
+      } else {
+        setError('Failed to sign message');
+      }
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function unlinkWallet() {
+    setUpdating(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/wallet/link', { method: 'DELETE' });
+      if (response.ok) {
+        await fetchDepositInfo();
+      } else {
+        setError('Failed to unlink wallet');
+      }
+    } catch {
+      setError('Failed to unlink wallet');
     } finally {
       setUpdating(false);
     }
@@ -76,13 +110,19 @@ export function DepositModal({ isOpen, onClose }: DepositModalProps) {
           <div className="text-center py-8">Loading...</div>
         ) : (
           <div className="space-y-4">
+            {error && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+              </div>
+            )}
+
             {!depositInfo?.userWallet && address ? (
               <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
                 <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-3">
-                  Link your wallet to enable automatic deposit detection
+                  Sign a message with your wallet to link it to your account
                 </p>
                 <button onClick={linkWallet} disabled={updating} className="btn-primary w-full">
-                  {updating ? 'Linking...' : 'Link Wallet'}
+                  {updating ? 'Sign in wallet...' : 'Sign & Link Wallet'}
                 </button>
               </div>
             ) : null}
@@ -118,8 +158,17 @@ export function DepositModal({ isOpen, onClose }: DepositModalProps) {
             {depositInfo?.userWallet && (
               <div>
                 <label className="block text-sm font-medium mb-2">Your Linked Wallet</label>
-                <div className="px-3 py-2 border rounded-lg bg-gray-50 dark:bg-gray-900 font-mono text-sm">
-                  {depositInfo.userWallet}
+                <div className="flex gap-2">
+                  <div className="flex-1 px-3 py-2 border rounded-lg bg-gray-50 dark:bg-gray-900 font-mono text-sm truncate">
+                    {depositInfo.userWallet}
+                  </div>
+                  <button
+                    onClick={unlinkWallet}
+                    disabled={updating}
+                    className="px-3 py-2 text-sm border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+                  >
+                    {updating ? '...' : 'Remove'}
+                  </button>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
                   Deposits from this address will be automatically credited

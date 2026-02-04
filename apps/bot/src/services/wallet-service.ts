@@ -32,8 +32,11 @@ export class WalletService {
     console.log('📍 Platform wallet:', this.wallet.address);
   }
 
+  private lastCheckedBlock: number = 0;
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
+
   /**
-   * Start monitoring deposits to the platform wallet
+   * Start monitoring deposits to the platform wallet via polling
    */
   async startMonitoring(): Promise<void> {
     if (this.isMonitoring) {
@@ -44,27 +47,27 @@ export class WalletService {
     this.isMonitoring = true;
     console.log('👂 Monitoring USDC deposits to platform wallet...');
 
-    // Listen for Transfer events to our wallet
-    this.usdcContract.on(
-      this.usdcContract.filters.Transfer(null, this.wallet.address),
-      async (from: string, to: string, amount: bigint, event: any) => {
-        console.log(`\n💰 Deposit detected: ${ethers.formatUnits(amount, USDC_DECIMALS)} USDC`);
-        console.log(`   From: ${from}`);
-        console.log(`   Tx: ${event.log.transactionHash}`);
+    try {
+      const currentBlock = await this.provider.getBlockNumber();
+      // Start from recent blocks only — no need to scan history on startup
+      this.lastCheckedBlock = Math.max(0, currentBlock - WalletService.MAX_BLOCK_RANGE);
+    } catch {
+      // If we can't get block number, first poll will handle it
+      this.lastCheckedBlock = 0;
+    }
 
-        await this.processDeposit(from, amount, event.log.transactionHash);
-      }
-    );
-
-    // Also poll for historical deposits every 5 minutes
-    setInterval(() => this.checkMissedDeposits(), 5 * 60 * 1000);
+    // Poll every 30 seconds using eth_getLogs (works on public RPCs)
+    this.pollInterval = setInterval(() => this.checkMissedDeposits(), 30 * 1000);
   }
 
   /**
    * Stop monitoring
    */
   stopMonitoring(): void {
-    this.usdcContract.removeAllListeners();
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
     this.isMonitoring = false;
     console.log('Stopped wallet monitoring');
   }
@@ -127,21 +130,30 @@ export class WalletService {
     }
   }
 
+  private static readonly MAX_BLOCK_RANGE = 1000;
+
   /**
-   * Check for missed deposits (e.g., if bot was down)
+   * Check for missed deposits using eth_getLogs (polling)
    */
   private async checkMissedDeposits(): Promise<void> {
     try {
       const currentBlock = await this.provider.getBlockNumber();
-      const fromBlock = currentBlock - 1000; // Check last ~30 minutes
+      if (currentBlock <= this.lastCheckedBlock) return;
 
+      // Public RPCs limit block range — scan in chunks
+      const fromBlock = Math.max(this.lastCheckedBlock + 1, currentBlock - WalletService.MAX_BLOCK_RANGE);
       const filter = this.usdcContract.filters.Transfer(null, this.wallet.address);
       const events = await this.usdcContract.queryFilter(filter, fromBlock, currentBlock);
 
       for (const event of events) {
-        const [from, to, amount] = event.args as [string, string, bigint];
+        const [from, , amount] = (event as ethers.EventLog).args as [string, string, bigint];
+        console.log(`\n💰 Deposit detected: ${ethers.formatUnits(amount, USDC_DECIMALS)} USDC`);
+        console.log(`   From: ${from}`);
+        console.log(`   Tx: ${event.transactionHash}`);
         await this.processDeposit(from, amount, event.transactionHash);
       }
+
+      this.lastCheckedBlock = currentBlock;
     } catch (error) {
       console.error('Error checking missed deposits:', error);
     }

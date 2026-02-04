@@ -1,6 +1,5 @@
 'use client';
 
-import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useSession, signIn } from 'next-auth/react';
 import { useState, useEffect } from 'react';
@@ -10,7 +9,6 @@ import { DepositModal } from '@/components/DepositModal';
 import { WithdrawModal } from '@/components/WithdrawModal';
 
 export default function Dashboard() {
-  const { address, isConnected } = useAccount();
   const { data: session, status } = useSession();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -19,7 +17,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (session) {
-      // User data is in session
       setUser({
         balanceUsdc: session.user.balanceUsdc || 0,
         xUsername: session.user.xUsername,
@@ -29,6 +26,8 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [session]);
+
+
 
   if (status === 'unauthenticated') {
     return (
