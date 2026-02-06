@@ -16,6 +16,7 @@ interface Tweet {
   text: string;
   author?: string;
   authorHandle?: string;
+  loggedInUser?: string; // The Twitter handle of the user using the extension
 }
 
 interface Market {
@@ -86,9 +87,15 @@ function App() {
       console.log('[Xmarket] Loading markets for tweet:', tweet.tweetId);
       loadMarkets(tweet.text);
       
-      // Verify user when tweet loads (if we have author handle)
-      if (tweet.authorHandle) {
-        verifyUser(tweet.authorHandle);
+      // Verify the LOGGED-IN user (not the tweet author)
+      if (tweet.loggedInUser) {
+        verifyUser(tweet.loggedInUser);
+      } else {
+        console.warn('[Xmarket] No logged-in user detected');
+        setUserVerification({
+          isRegistered: false,
+          error: 'Could not detect your Twitter account. Please refresh the page.',
+        });
       }
     }
   }, [tweet, isTestnet]); // Also reload when testnet mode changes

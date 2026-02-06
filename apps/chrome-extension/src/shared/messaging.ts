@@ -31,6 +31,7 @@ export interface TweetContext {
   text: string;
   author?: string;
   authorHandle?: string;
+  loggedInUser?: string; // The Twitter handle of the user using the extension
 }
 
 export interface Market {

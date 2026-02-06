@@ -11,6 +11,35 @@ import { MessageType, sendMessage, TweetContext } from '../shared/messaging';
 
 console.log('[Xmarket] Content script loaded');
 
+// Get the currently logged-in Twitter user's handle
+function getLoggedInUserHandle(): string | null {
+  // Try multiple selectors to find the logged-in user's handle
+  const selectors = [
+    // Side navigation account switcher
+    '[data-testid="SideNav_AccountSwitcher_Button"] [dir="ltr"]',
+    // Profile link in sidebar
+    'a[data-testid="AppTabBar_Profile_Link"] span',
+    // User menu button
+    '[data-testid="DashButton_ProfileIcon_Link"] span',
+  ];
+
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (element?.textContent) {
+      const text = element.textContent.trim();
+      // Extract handle (remove @ if present)
+      const handle = text.replace('@', '');
+      if (handle && handle.length > 0 && !handle.includes(' ')) {
+        console.log(`[Xmarket] Detected logged-in user: @${handle}`);
+        return handle;
+      }
+    }
+  }
+
+  console.warn('[Xmarket] Could not detect logged-in user handle');
+  return null;
+}
+
 // Create and inject bet button
 function createBetButton(): HTMLButtonElement {
   const button = document.createElement('button');
@@ -35,7 +64,16 @@ async function handleBetClick(tweetElement: HTMLElement) {
     return;
   }
 
-  console.log('[Xmarket] Tweet selected:', tweetData);
+  // Get the logged-in user's handle
+  const loggedInUser = getLoggedInUserHandle();
+  
+  // Add logged-in user to tweet data
+  const enrichedTweetData = {
+    ...tweetData,
+    loggedInUser: loggedInUser || undefined,
+  };
+
+  console.log('[Xmarket] Tweet selected:', enrichedTweetData);
 
   try {
     // Open side panel synchronously to preserve the user gesture (prevents chrome restriction)
@@ -51,7 +89,7 @@ async function handleBetClick(tweetElement: HTMLElement) {
     }
 
     // Store the selected tweet in the background
-    await sendMessage(MessageType.TWEET_SELECTED, { tweet: tweetData });
+    await sendMessage(MessageType.TWEET_SELECTED, { tweet: enrichedTweetData });
   } catch (error) {
     console.error('[Xmarket] Error handling bet click:', error);
     
