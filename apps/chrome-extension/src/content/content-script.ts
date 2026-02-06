@@ -13,24 +13,30 @@ console.log('[Xmarket] Content script loaded');
 
 // Get the currently logged-in Twitter user's handle
 function getLoggedInUserHandle(): string | null {
-  // Try multiple selectors to find the logged-in user's handle
-  const selectors = [
-    // Side navigation account switcher
-    '[data-testid="SideNav_AccountSwitcher_Button"] [dir="ltr"]',
-    // Profile link in sidebar
-    'a[data-testid="AppTabBar_Profile_Link"] span',
-    // User menu button
-    '[data-testid="DashButton_ProfileIcon_Link"] span',
-  ];
+  // Method 1: Account switcher in sidebar (most reliable)
+  const accountSwitcher = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+  if (accountSwitcher) {
+    const profileLink = accountSwitcher.querySelector('a[href^="/"][role="link"]');
+    if (profileLink) {
+      const href = profileLink.getAttribute('href');
+      if (href && href.startsWith('/') && !href.includes('/i/')) {
+        const handle = href.substring(1); // Remove leading "/"
+        if (handle && !handle.includes('/')) {
+          console.log(`[Xmarket] Detected logged-in user: @${handle}`);
+          return handle;
+        }
+      }
+    }
+  }
 
-  for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    if (element?.textContent) {
-      const text = element.textContent.trim();
-      // Extract handle (remove @ if present)
-      const handle = text.replace('@', '');
-      if (handle && handle.length > 0 && !handle.includes(' ')) {
-        console.log(`[Xmarket] Detected logged-in user: @${handle}`);
+  // Method 2: Fallback - try profile link in navigation
+  const navProfileLink = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
+  if (navProfileLink) {
+    const href = navProfileLink.getAttribute('href');
+    if (href && href.startsWith('/')) {
+      const handle = href.substring(1);
+      if (handle && !handle.includes('/')) {
+        console.log(`[Xmarket] Detected logged-in user (fallback): @${handle}`);
         return handle;
       }
     }
