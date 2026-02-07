@@ -1,6 +1,6 @@
 import { sendMessage, MessageType } from '../../shared/messaging';
 
-// Market matching service - keyword-based search
+// Market matching service - improved keyword-based search
 
 interface Market {
   id: string;
@@ -22,109 +22,111 @@ interface Market {
 interface ScoredMarket {
   market: Market;
   score: number;
+  singleMatches: number;
+  bigramMatches: number;
+  matchRatio: number;
 }
 
+// Minimal stop words - only truly generic words
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of',
+  'with', 'by', 'is', 'was', 'are', 'were', 'be', 'been', 'has', 'have', 'had',
+  'do', 'does', 'did', 'this', 'that', 'it', 'its', 'not', 'no', 'so', 'if',
+  'just', 'about', 'get', 'got', 'than', 'then', 'now', 'how', 'all', 'will',
+  'can', 'would', 'could', 'should', 'may', 'might', 'here', 'there', 'what',
+  'when', 'where', 'who', 'which', 'why', 'from', 'up', 'out', 'into', 'over',
+  'after', 'before', 'between', 'under', 'again', 'also', 'been', 'being',
+  'very', 'too', 'really', 'much', 'many', 'some', 'any', 'each', 'every',
+  'both', 'few', 'more', 'most', 'other', 'such', 'only', 'same', 'own',
+  // Common tweet/news filler words that match everything
+  'says', 'said', 'told', 'heard', 'think', 'thinks', 'know', 'like', 'going',
+  'gonna', 'want', 'wants', 'need', 'needs', 'make', 'makes', 'made', 'take',
+  'new', 'just', 'still', 'even', 'back', 'way', 'day', 'week', 'year',
+  'time', 'people', 'right', 'good', 'great', 'big', 'long', 'high', 'low',
+  'last', 'first', 'next', 'look', 'come', 'see', 'let', 'give', 'keep',
+]);
+
 // Extract keywords from tweet text
-function extractKeywords(text: string): string[] {
+function extractKeywords(text: string): { words: string[]; bigrams: string[] } {
   // Remove URLs
   let cleaned = text.replace(/https?:\/\/\S+/g, '');
-
   // Remove @mentions
   cleaned = cleaned.replace(/@\w+/g, '');
-
-  // Remove hashtags but keep the text
+  // Remove hashtags symbol but keep text
   cleaned = cleaned.replace(/#/g, '');
-
   // Convert to lowercase
   cleaned = cleaned.toLowerCase();
 
-  // Important terms that should always be kept (crypto, tech, politics, etc.)
-  const importantTerms = new Set([
-    'btc', 'eth', 'ai', 'gpt', 'fed', 'sec', 'gdp', 'cpi', 'nyc', 'la', 'uk', 'us',
-    'nft', 'dao', 'web3', 'defi', 'nba', 'nfl', 'mlb', 'ufc', 'elon'
-  ]);
-
-  // Remove common stop words
-  const stopWords = new Set([
-    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of',
-    'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be',
-    'have', 'has', 'had', 'do', 'does', 'did', 'can', 'this', 'that',
-  ]);
-
-  // Split into words and filter
-  const words = cleaned
+  // Split into words, keep alphanumeric (including numbers like "2028", "100k")
+  const allWords = cleaned
     .split(/\s+/)
     .map((w) => w.replace(/[^\w]/g, ''))
-    .filter((w) => {
-      if (w.length === 0) return false;
-      // Keep important terms regardless of length
-      if (importantTerms.has(w)) return true;
-      // Keep words longer than 2 chars that aren't stop words
-      return w.length > 2 && !stopWords.has(w);
-    });
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
 
-  return words;
+  // Deduplicate words
+  const words = [...new Set(allWords)];
+
+  // Extract bigrams (consecutive word pairs) for better matching
+  const bigrams: string[] = [];
+  for (let i = 0; i < allWords.length - 1; i++) {
+    const bigram = `${allWords[i]} ${allWords[i + 1]}`;
+    bigrams.push(bigram);
+  }
+  const uniqueBigrams = [...new Set(bigrams)];
+
+  return { words, bigrams: uniqueBigrams };
 }
 
-// Calculate keyword overlap score
-function calculateKeywordScore(keywords: string[], marketText: string): number {
+// Calculate keyword overlap score - no synonyms, clean scoring
+function calculateKeywordScore(
+  words: string[],
+  bigrams: string[],
+  marketText: string
+): { score: number; singleMatches: number; bigramMatches: number } {
   const marketLower = marketText.toLowerCase();
 
-  // Keyword synonyms and expansions for better matching
-  const synonyms: Record<string, string[]> = {
-    'bitcoin': ['btc', 'bitcoin'],
-    'btc': ['btc', 'bitcoin'],
-    'ethereum': ['eth', 'ethereum'],
-    'eth': ['eth', 'ethereum'],
-    'crypto': ['cryptocurrency', 'crypto', 'bitcoin', 'btc', 'eth', 'ethereum'],
-    'price': ['price', 'reach', 'hit', 'above', 'below'],
-    'trump': ['donald', 'trump', 'president'],
-    'election': ['election', 'vote', 'presidential'],
-  };
-
   let score = 0;
-  let matchCount = 0;
+  let singleMatches = 0;
+  let bigramMatches = 0;
 
-  keywords.forEach((keyword) => {
-    // Get all variations of this keyword
-    const variations = synonyms[keyword] || [keyword];
-    
-    let keywordMatched = false;
-    
-    variations.forEach((variation) => {
-      // Exact word match
-      const regex = new RegExp(`\\b${variation}\\b`, 'gi');
-      const matches = marketLower.match(regex);
-      if (matches) {
-        score += matches.length * 3; // Weight exact matches higher
-        keywordMatched = true;
-      }
-      // Partial match (substring)
-      else if (marketLower.includes(variation)) {
-        score += 1;
-        keywordMatched = true;
-      }
-    });
-    
-    if (keywordMatched) {
-      matchCount++;
+  // Score bigrams (worth more - they indicate topic specificity)
+  for (const bigram of bigrams) {
+    if (marketLower.includes(bigram)) {
+      score += 5;
+      bigramMatches++;
     }
-  });
-
-  // Boost score if multiple keywords match
-  if (matchCount > 1) {
-    score *= 1.5;
   }
 
-  return score;
+  // Score individual words
+  for (const word of words) {
+    // Exact word boundary match
+    const regex = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    if (regex.test(marketLower)) {
+      score += 3;
+      singleMatches++;
+    }
+    // Substring match (weaker)
+    else if (marketLower.includes(word)) {
+      score += 1;
+      singleMatches++;
+    }
+  }
+
+  // Normalize by keyword count to avoid bias toward long tweets
+  const keywordCount = words.length + bigrams.length;
+  if (keywordCount > 0) {
+    score = score / Math.sqrt(keywordCount);
+  }
+
+  return { score, singleMatches, bigramMatches };
 }
 
 // Fetch markets by asking the background service worker (avoids CORS issues)
-async function fetchMarkets(isTestnet: boolean, keywords: string[]): Promise<Market[]> {
+async function fetchMarkets(keywords: string[]): Promise<Market[]> {
   try {
-    const response = await sendMessage(MessageType.SEARCH_MARKETS, { 
-      keywords, 
-      isTestnet 
+    const response = await sendMessage(MessageType.SEARCH_MARKETS, {
+      keywords,
+      isTestnet: false,
     });
     if (response?.error) {
       throw new Error(response.error);
@@ -134,14 +136,13 @@ async function fetchMarkets(isTestnet: boolean, keywords: string[]): Promise<Mar
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[Xmarket] Error requesting markets from background:', errorMessage);
-    
-    // Provide more context for common errors
+
     if (errorMessage.includes('context')) {
       throw new Error('Extension connection lost. Please reload the page.');
     } else if (errorMessage.includes('fetch')) {
       throw new Error('Failed to fetch markets. Please check your internet connection.');
     }
-    
+
     throw error;
   }
 }
@@ -149,16 +150,15 @@ async function fetchMarkets(isTestnet: boolean, keywords: string[]): Promise<Mar
 // Find markets matching tweet content
 export async function findMarketsForTweet(
   tweetText: string,
-  isTestnet: boolean = false
+  _isTestnet: boolean = false
 ): Promise<Market[]> {
   try {
-    // Extract keywords from tweet
-    const keywords = extractKeywords(tweetText);
-    console.log('[Xmarket] Extracted keywords:', keywords);
-    console.log('[Xmarket] Original tweet text:', tweetText);
+    const { words, bigrams } = extractKeywords(tweetText);
+    console.log('[Xmarket] Extracted keywords:', words);
+    console.log('[Xmarket] Extracted bigrams:', bigrams);
 
-    // Fetch markets (API doesn't support search, so we fetch all and filter)
-    const markets = await fetchMarkets(isTestnet, keywords);
+    // Fetch markets (always mainnet)
+    const markets = await fetchMarkets(words);
     console.log('[Xmarket] Fetched markets from API:', markets.length);
 
     if (markets.length === 0) {
@@ -167,15 +167,14 @@ export async function findMarketsForTweet(
     }
 
     // Filter to binary markets only
-    // Note: API returns outcomes as JSON string, not array
     const binaryMarkets = markets.filter((m) => {
       try {
-        const outcomes = typeof m.outcomes === 'string' 
-          ? JSON.parse(m.outcomes) 
+        const outcomes = typeof m.outcomes === 'string'
+          ? JSON.parse(m.outcomes)
           : m.outcomes;
-        return outcomes.length === 2 && 
-               outcomes.includes('Yes') && 
-               outcomes.includes('No');
+        return outcomes.length === 2 &&
+          outcomes.includes('Yes') &&
+          outcomes.includes('No');
       } catch {
         return false;
       }
@@ -183,45 +182,47 @@ export async function findMarketsForTweet(
 
     console.log('[Xmarket] Binary markets:', binaryMarkets.length);
 
-    // If no keywords, return top by volume
-    if (keywords.length === 0) {
-      console.log('[Xmarket] No keywords, returning top markets by volume');
-      return binaryMarkets
-        .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
-        .slice(0, 10);
+    // If no keywords extracted, return empty (not random markets)
+    if (words.length === 0) {
+      console.log('[Xmarket] No keywords extracted from tweet, returning empty');
+      return [];
     }
 
     // Score markets based on keyword overlap
     const scored: ScoredMarket[] = binaryMarkets.map((market) => {
-      const questionScore = calculateKeywordScore(keywords, market.question);
-      const descScore = market.description
-        ? calculateKeywordScore(keywords, market.description)
-        : 0;
+      const questionResult = calculateKeywordScore(words, bigrams, market.question);
+      const descResult = market.description
+        ? calculateKeywordScore(words, bigrams, market.description)
+        : { score: 0, singleMatches: 0, bigramMatches: 0 };
 
       // Combine scores with question weighted higher
-      let totalScore = questionScore * 2.5 + descScore;
-      
-      // Boost crypto/blockchain-related markets if keywords include related terms
-      const hasCryptoKeyword = keywords.some(k => 
-        ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'blockchain', 'defi', 'nft', 
-         'web3', 'token', 'dao', 'l2', 'layer', 'chain', 'monad', 'solana', 'base', 
-         'arbitrum', 'optimism', 'polygon', 'avalanche', 'cosmos'].includes(k.toLowerCase())
-      );
-      const isCryptoMarket = /bitcoin|btc|crypto|ethereum|eth|blockchain|defi|web3|nft|token|solana|base|arbitrum|polygon/i.test(market.question);
-      if (hasCryptoKeyword && isCryptoMarket) {
-        totalScore *= 2; // Double the score for crypto keyword + crypto market
-      }
+      const totalScore = questionResult.score * 2.5 + descResult.score;
+      const totalSingleMatches = questionResult.singleMatches + descResult.singleMatches;
+      const totalBigramMatches = questionResult.bigramMatches + descResult.bigramMatches;
+
+      // Match ratio: what fraction of the tweet's keywords appear in the market
+      const matchRatio = words.length > 0 ? totalSingleMatches / words.length : 0;
 
       return {
         market,
         score: totalScore,
+        singleMatches: totalSingleMatches,
+        bigramMatches: totalBigramMatches,
+        matchRatio,
       };
     });
 
-    // Filter to matches and sort by score, then volume
+    // Dynamic minimum matches: at least 20% of keywords, minimum 2, max 5
+    const minMatches = Math.max(2, Math.min(5, Math.ceil(words.length * 0.2)));
+
+    console.log(`[Xmarket] Filtering: require >= ${minMatches} single matches (${words.length} keywords) or >= 1 bigram`);
+
+    // Filter: require proportional keyword overlap OR bigram match
     const matches = scored
-      .filter((s) => s.score > 1.0) // Raise threshold to reduce noise
+      .filter((s) => s.singleMatches >= minMatches || s.bigramMatches >= 1)
       .sort((a, b) => {
+        // Sort by match ratio first (how relevant), then by score, then volume
+        if (Math.abs(b.matchRatio - a.matchRatio) > 0.1) return b.matchRatio - a.matchRatio;
         if (b.score !== a.score) return b.score - a.score;
         return parseFloat(b.market.volume || '0') - parseFloat(a.market.volume || '0');
       })
@@ -229,42 +230,19 @@ export async function findMarketsForTweet(
       .map((s) => s.market);
 
     console.log('[Xmarket] Keyword matched markets:', matches.length);
-    
-    // If no keyword matches, use smart fallback
+
+    // No fallback to random markets - return empty if no real matches
     if (matches.length === 0) {
-      console.log('[Xmarket] No keyword matches');
-      
-      // If tweet had crypto keywords, show crypto markets by volume
-      const hasCryptoKeyword = keywords.some(k => 
-        ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'blockchain', 'defi', 'nft', 
-         'web3', 'token', 'dao', 'l2', 'layer', 'chain', 'monad', 'solana', 'base'].includes(k.toLowerCase())
-      );
-      
-      if (hasCryptoKeyword) {
-        console.log('[Xmarket] Showing crypto markets as fallback');
-        const cryptoMarkets = binaryMarkets.filter(m => 
-          /bitcoin|btc|crypto|ethereum|eth|blockchain|defi|web3|nft|token|solana|base|arbitrum|polygon/i.test(m.question)
-        );
-        if (cryptoMarkets.length > 0) {
-          return cryptoMarkets
-            .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
-            .slice(0, 10);
-        }
-      }
-      
-      // Otherwise show top markets by volume
-      console.log('[Xmarket] Showing top markets by volume');
-      return binaryMarkets
-        .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
-        .slice(0, 10);
+      console.log('[Xmarket] No matching markets found for this tweet');
+      return [];
     }
 
-    console.log('[Xmarket] Top matches:', matches.slice(0, 3).map(m => ({ 
-      question: m.question.substring(0, 60), 
+    console.log('[Xmarket] Top matches:', matches.slice(0, 3).map(m => ({
+      question: m.question.substring(0, 60),
       volume: m.volume,
-      score: scored.find(s => s.market.id === m.id)?.score.toFixed(2)
+      score: scored.find(s => s.market.id === m.id)?.score.toFixed(2),
     })));
-    
+
     return matches;
   } catch (error) {
     console.error('[Xmarket] Error in findMarketsForTweet:', error);
@@ -272,20 +250,51 @@ export async function findMarketsForTweet(
   }
 }
 
-// Format market for display
+// Format market for display - with proper parsing
 export function formatMarket(market: Market) {
-  // Parse outcomePrices if it's a JSON string
+  // Parse outcomePrices - API returns as JSON string: "[\"0.52\",\"0.48\"]"
   let prices: number[] = [0.5, 0.5];
+  let pricesParsed = false;
+
   try {
     const pricesData = typeof market.outcomePrices === 'string'
       ? JSON.parse(market.outcomePrices)
       : market.outcomePrices;
-    
+
     if (Array.isArray(pricesData) && pricesData.length === 2) {
-      prices = [parseFloat(pricesData[0]), parseFloat(pricesData[1])];
+      const p0 = parseFloat(pricesData[0]);
+      const p1 = parseFloat(pricesData[1]);
+      if (!isNaN(p0) && !isNaN(p1)) {
+        prices = [p0, p1];
+        pricesParsed = true;
+      } else {
+        console.warn('[Xmarket] outcomePrices contain NaN for market:', market.id, pricesData);
+      }
+    } else {
+      console.warn('[Xmarket] outcomePrices unexpected format for market:', market.id, pricesData);
     }
   } catch (err) {
-    console.warn('[Xmarket] Failed to parse outcomePrices for market:', market.id, err);
+    console.warn('[Xmarket] Failed to parse outcomePrices for market:', market.id, market.outcomePrices, err);
+  }
+
+  // Also try tokens array as backup for prices
+  if (!pricesParsed && market.tokens) {
+    try {
+      const tokensData = typeof market.tokens === 'string'
+        ? JSON.parse(market.tokens)
+        : market.tokens;
+
+      if (Array.isArray(tokensData) && tokensData.length >= 2) {
+        const yesToken = tokensData.find((t: any) => t.outcome === 'Yes');
+        const noToken = tokensData.find((t: any) => t.outcome === 'No');
+        if (yesToken?.price && noToken?.price) {
+          prices = [parseFloat(yesToken.price), parseFloat(noToken.price)];
+          pricesParsed = true;
+        }
+      }
+    } catch (err) {
+      console.warn('[Xmarket] Failed to parse tokens for market:', market.id, err);
+    }
   }
 
   const volume = market.volume ? parseFloat(market.volume) : 0;
@@ -303,5 +312,6 @@ export function formatMarket(market: Market) {
     volume: formattedVolume,
     endDate: market.end_date_iso,
     image: market.image,
+    pricesParsed,
   };
 }

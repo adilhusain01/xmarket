@@ -1,0 +1,57 @@
+name: Build & Release Chrome Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/chrome-extension/**'
+      - 'packages/shared/**'
+      - '.github/workflows/build-extension.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+
+      - name: Build Chrome extension
+        run: npm run build --workspace=apps/chrome-extension
+
+      - name: Zip extension
+        run: |
+          cd apps/chrome-extension
+          mv dist xmarket-extension
+          zip -r ../../xmarket-extension.zip xmarket-extension/
+
+      - name: Update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: extension-latest
+          name: Xmarket Chrome Extension (Latest)
+          body: |
+            Latest build of the Xmarket Chrome Extension.
+
+            **How to install:**
+            1. Download `xmarket-extension.zip` below
+            2. Unzip the file
+            3. Open `chrome://extensions` in Chrome
+            4. Enable "Developer mode" (top right)
+            5. Click "Load unpacked" and select the `xmarket-extension` folder
+          files: xmarket-extension.zip
+          prerelease: false
+          make_latest: true

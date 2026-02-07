@@ -1,7 +1,7 @@
 // Main Side Panel App
 
 import React, { useEffect, useState } from 'react';
-import { getStorageItem, setStorageItem } from '../shared/storage';
+import { getStorageItem } from '../shared/storage';
 import { TweetContext } from './components/TweetContext';
 import { MarketList } from './components/MarketList';
 import { WalletStatus } from './components/WalletStatus';
@@ -9,14 +9,14 @@ import { BetForm } from './components/BetForm';
 import { BetFlowStatus } from './components/BetFlowStatus';
 import { findMarketsForTweet } from './lib/market-matcher';
 import { useBetFlow } from './hooks/useBetFlow';
-import { verifyTwitterUser, type UserVerificationResult } from './lib/user-service';
+import { useWallet } from './hooks/useWallet';
 
 interface Tweet {
   tweetId: string;
   text: string;
   author?: string;
   authorHandle?: string;
-  loggedInUser?: string; // The Twitter handle of the user using the extension
+  loggedInUser?: string;
 }
 
 interface Market {
@@ -42,40 +42,36 @@ function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(false);
-  const [isTestnet, setIsTestnet] = useState(false);
-  
-  // User verification state
-  const [userVerification, setUserVerification] = useState<UserVerificationResult | null>(null);
-  const [isVerifyingUser, setIsVerifyingUser] = useState(false);
 
-  // Hooks
-  const { preparation, isLoading, error, prepare, execute, reset } = useBetFlow();
-  
-  // Get wallet address from verification or use placeholder
-  const walletAddress = userVerification?.walletAddress || '0x0000000000000000000000000000000000000000' as `0x${string}`;
+  // Wallet hook (MetaMask)
+  const { address, isConnected, init: initWallet } = useWallet();
+
+  // Bet flow hook
+  const { preparation, isLoading, error, prepare, reset } = useBetFlow();
+
+  // Initialize wallet on mount (restore saved address)
+  useEffect(() => {
+    initWallet();
+  }, []);
 
   // Load tweet from storage on mount
   useEffect(() => {
     loadTweetFromStorage();
-    
-    // Listen for storage changes (when a new tweet is selected)
+
     const handleStorageChange = (changes: { [key: string]: chrome.storage.StorageChange }) => {
       if (changes.lastTweet) {
         const newTweet = changes.lastTweet.newValue;
         if (newTweet) {
           console.log('[Xmarket] New tweet selected, updating side panel');
           setTweet(newTweet);
-          // Reset state for the new tweet
           setMarkets([]);
           setSelectedMarketId(null);
           reset();
         }
       }
     };
-    
+
     chrome.storage.onChanged.addListener(handleStorageChange);
-    
-    // Cleanup listener on unmount
     return () => {
       chrome.storage.onChanged.removeListener(handleStorageChange);
     };
@@ -86,19 +82,8 @@ function App() {
     if (tweet) {
       console.log('[Xmarket] Loading markets for tweet:', tweet.tweetId);
       loadMarkets(tweet.text);
-      
-      // Verify the LOGGED-IN user (not the tweet author)
-      if (tweet.loggedInUser) {
-        verifyUser(tweet.loggedInUser);
-      } else {
-        console.warn('[Xmarket] No logged-in user detected');
-        setUserVerification({
-          isRegistered: false,
-          error: 'Could not detect your Twitter account. Please refresh the page.',
-        });
-      }
     }
-  }, [tweet, isTestnet]); // Also reload when testnet mode changes
+  }, [tweet]);
 
   async function loadTweetFromStorage() {
     const lastTweet = await getStorageItem('lastTweet');
@@ -107,35 +92,12 @@ function App() {
     }
   }
 
-  async function verifyUser(twitterHandle: string) {
-    setIsVerifyingUser(true);
-    setUserVerification(null);
-    
-    try {
-      const result = await verifyTwitterUser(twitterHandle);
-      setUserVerification(result);
-      
-      if (!result.isRegistered) {
-        console.warn(`[Xmarket] User @${twitterHandle} not registered:`, result.error);
-      }
-    } catch (error) {
-      console.error('[Xmarket] User verification error:', error);
-      setUserVerification({
-        isRegistered: false,
-        error: 'Failed to verify user. Please try again.',
-      });
-    } finally {
-      setIsVerifyingUser(false);
-    }
-  }
-
   async function loadMarkets(tweetText: string) {
     setIsLoadingMarkets(true);
     try {
-      const foundMarkets = await findMarketsForTweet(tweetText, isTestnet);
+      const foundMarkets = await findMarketsForTweet(tweetText);
       setMarkets(foundMarkets);
 
-      // Auto-select first market
       if (foundMarkets.length > 0) {
         setSelectedMarketId(foundMarkets[0].id);
       }
@@ -146,29 +108,16 @@ function App() {
     }
   }
 
-  async function handleBetSubmit(side: 'yes' | 'no', amount: number) {
-    if (!selectedMarketId) return;
-    
-    // Check if user is verified before allowing bet
-    if (!userVerification?.isRegistered || !userVerification.walletAddress) {
-      alert('Please register at xmarket.com before placing bets.');
-      return;
-    }
+  async function handleBetSubmit(_side: 'yes' | 'no', amount: number) {
+    if (!selectedMarketId || !address) return;
 
-    // Prepare the bet (check balances, get bridge route if needed)
-    // Using verified custodial wallet address
-    await prepare(amount, userVerification.walletAddress, isTestnet);
+    await prepare(amount, address as `0x${string}`, false);
   }
 
   async function handleExecuteBridge() {
-    // Bridge will be executed by backend using custodial wallet
     alert(
       'Bridge execution requires wallet interaction. This will be implemented in the next phase.'
     );
-
-    // TODO: Get wallet client and execute bridge
-    // const walletClient = await getWalletClient();
-    // await execute(walletClient, isTestnet);
   }
 
   return (
@@ -176,26 +125,6 @@ function App() {
       <div className="app-header">
         <div className="app-title">Xmarket</div>
         <div className="app-subtitle">Bet on Polymarket from Twitter</div>
-        <div style={{ marginTop: 8 }}>
-          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={isTestnet}
-              onChange={(e) => {
-                setIsTestnet(e.target.checked);
-                // Reset markets and preparation when switching modes
-                setMarkets([]);
-                setSelectedMarketId(null);
-                reset();
-                // Reload markets if we have a tweet
-                if (tweet) {
-                  loadMarkets(tweet.text);
-                }
-              }}
-            />
-            <span>Testnet Mode</span>
-          </label>
-        </div>
       </div>
 
       <div className="app-content">
@@ -214,7 +143,7 @@ function App() {
 
         {!tweet && (
           <div className="empty-state">
-            <div className="empty-state-icon">🐦</div>
+            <div className="empty-state-icon">&#x1F426;</div>
             <div className="empty-state-title">No Tweet Selected</div>
             <div className="empty-state-description">
               Click the "Bet" button on any tweet to get started.
@@ -231,56 +160,35 @@ function App() {
                 <div className="spinner"></div>
                 Finding markets...
               </div>
-            ) : (
+            ) : markets.length > 0 ? (
               <MarketList
                 markets={markets}
                 selectedMarketId={selectedMarketId}
                 onSelectMarket={setSelectedMarketId}
               />
+            ) : (
+              <div className="status-message" style={{
+                background: '#fefce8',
+                border: '1px solid #fde68a',
+                color: '#92400e',
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>No Related Markets Found</div>
+                <div style={{ fontSize: 12 }}>
+                  Try selecting a tweet about a specific topic like politics, crypto, sports, or current events.
+                </div>
+              </div>
             )}
           </div>
         )}
 
         {/* Wallet Status */}
         {tweet && markets.length > 0 && (
-          <>
-            {isVerifyingUser ? (
-              <div className="section">
-                <div className="status-message status-info">
-                  <div className="loading">
-                    <div className="spinner"></div>
-                    Verifying your account...
-                  </div>
-                </div>
-              </div>
-            ) : userVerification?.isRegistered ? (
-              <WalletStatus />
-            ) : (
-              <div className="section">
-                <div className="status-message status-error">
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Registration Required</div>
-                  <div style={{ fontSize: 12, marginBottom: 8 }}>
-                    {userVerification?.error || 'Please register at xmarket.com to place bets.'}
-                  </div>
-                </div>
-                <a 
-                  href="https://xmarket.com/auth/signup" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="btn btn-primary btn-full"
-                  style={{ textDecoration: 'none', textAlign: 'center' }}
-                >
-                  Register Now
-                </a>
-              </div>
-            )}
-          </>
+          <WalletStatus />
         )}
 
         {/* Bet Form */}
-        {tweet && markets.length > 0 && selectedMarketId && userVerification?.isRegistered && (
+        {tweet && markets.length > 0 && selectedMarketId && isConnected && address && (
           <>
-            {/* Show bet flow status if we have preparation result */}
             {preparation && (
               <BetFlowStatus
                 preparation={preparation}
@@ -291,7 +199,6 @@ function App() {
               />
             )}
 
-            {/* Show error if any */}
             {error && !preparation && (
               <div className="status-message status-error">
                 <div style={{ fontWeight: 600 }}>Error</div>
@@ -299,11 +206,10 @@ function App() {
               </div>
             )}
 
-            {/* Show bet form if ready or no preparation yet */}
             {(!preparation || preparation.status === 'idle' || preparation.status === 'ready') && (
               <BetForm
                 marketId={selectedMarketId}
-                walletAddress={walletAddress}
+                walletAddress={address}
                 onSubmit={handleBetSubmit}
                 isLoading={isLoading}
               />
