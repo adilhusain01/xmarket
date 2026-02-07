@@ -1,4 +1,4 @@
-import { createPublicClient, http, erc20Abi, formatUnits } from 'viem';
+import { createPublicClient, http, fallback, erc20Abi, formatUnits } from 'viem';
 import {
   mainnet, polygon, arbitrum, base, optimism,
   sepolia, polygonAmoy, arbitrumSepolia, baseSepolia, optimismSepolia,
@@ -32,6 +32,57 @@ const VIEM_CHAINS: Record<number, Chain> = IS_TESTNET
 const USDC_CHAINS = getActiveChains(IS_TESTNET);
 const TARGET_CHAIN_ID = getTargetChainId(IS_TESTNET);
 
+// Fallback RPC URLs for each chain (using multiple providers for reliability)
+const RPC_URLS: Record<number, string[]> = {
+  // Mainnet
+  1: [
+    'https://eth.llamarpc.com',
+    'https://rpc.ankr.com/eth',
+    'https://ethereum.publicnode.com',
+  ],
+  137: [
+    process.env.NEXT_PUBLIC_POLYGON_RPC_URL || 'https://polygon-rpc.com',
+    'https://rpc.ankr.com/polygon',
+    'https://polygon.llamarpc.com',
+  ],
+  42161: [
+    'https://arb1.arbitrum.io/rpc',
+    'https://rpc.ankr.com/arbitrum',
+    'https://arbitrum.llamarpc.com',
+  ],
+  8453: [
+    'https://mainnet.base.org',
+    'https://base.llamarpc.com',
+    'https://rpc.ankr.com/base',
+  ],
+  10: [
+    'https://mainnet.optimism.io',
+    'https://rpc.ankr.com/optimism',
+    'https://optimism.llamarpc.com',
+  ],
+  // Testnet
+  11155111: [
+    'https://rpc.ankr.com/eth_sepolia',
+    'https://ethereum-sepolia.publicnode.com',
+  ],
+  80002: [
+    process.env.NEXT_PUBLIC_POLYGON_RPC_URL || 'https://rpc-amoy.polygon.technology',
+    'https://polygon-amoy.g.alchemy.com/v2/demo',
+  ],
+  421614: [
+    'https://sepolia-rollup.arbitrum.io/rpc',
+    'https://arbitrum-sepolia.blockpi.network/v1/rpc/public',
+  ],
+  84532: [
+    'https://sepolia.base.org',
+    'https://base-sepolia.blockpi.network/v1/rpc/public',
+  ],
+  11155420: [
+    'https://sepolia.optimism.io',
+    'https://optimism-sepolia.blockpi.network/v1/rpc/public',
+  ],
+};
+
 export interface ChainBalance {
   chainId: number;
   chainName: string;
@@ -40,7 +91,7 @@ export interface ChainBalance {
 }
 
 /**
- * Check USDC balance on a single chain via public RPC.
+ * Check USDC balance on a single chain via public RPC with fallback providers.
  */
 export async function getUsdcBalanceOnChain(
   chainId: number,
@@ -55,7 +106,18 @@ export async function getUsdcBalanceOnChain(
 
   console.log(`  [BalanceCheck] → Querying ${config.name} (chain ${chainId})...`);
 
-  const client = createPublicClient({ chain, transport: http() });
+  // Create transports with fallback for reliability
+  const rpcUrls = RPC_URLS[chainId] || [];
+  const transports = rpcUrls.map(url => http(url, {
+    timeout: 10_000,
+    retryCount: 2,
+    retryDelay: 1000,
+  }));
+
+  const client = createPublicClient({
+    chain,
+    transport: transports.length > 1 ? fallback(transports) : transports[0],
+  });
 
   const balanceRaw = await client.readContract({
     address: config.usdcAddress,
