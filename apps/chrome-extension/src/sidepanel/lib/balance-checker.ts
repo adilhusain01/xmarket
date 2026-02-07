@@ -1,88 +1,8 @@
 // Balance checker adapted for Chrome extension
-// Checks USDC balances across multiple chains
+// Checks USDC balances across multiple chains using MetaMask
 
-import { createPublicClient, http, fallback, erc20Abi, formatUnits } from 'viem';
-import {
-  mainnet,
-  polygon,
-  arbitrum,
-  base,
-  optimism,
-  sepolia,
-  polygonAmoy,
-  arbitrumSepolia,
-  baseSepolia,
-  optimismSepolia,
-} from 'viem/chains';
-import type { Chain } from 'viem';
+import { erc20Abi, formatUnits, encodeFunctionData } from 'viem';
 import { getActiveChains, getTargetChainId, getTargetChainName } from '@xmarket/shared';
-
-const VIEM_CHAINS_MAINNET: Record<number, Chain> = {
-  1: mainnet,
-  137: polygon,
-  42161: arbitrum,
-  8453: base,
-  10: optimism,
-};
-
-const VIEM_CHAINS_TESTNET: Record<number, Chain> = {
-  11155111: sepolia,
-  80002: polygonAmoy,
-  421614: arbitrumSepolia,
-  84532: baseSepolia,
-  11155420: optimismSepolia,
-};
-
-// Fallback RPC URLs for each chain (using multiple providers for reliability)
-const RPC_URLS: Record<number, string[]> = {
-  // Mainnet
-  1: [
-    'https://eth.llamarpc.com',
-    'https://rpc.ankr.com/eth',
-    'https://ethereum.publicnode.com',
-  ],
-  137: [
-    'https://polygon-rpc.com',
-    'https://rpc.ankr.com/polygon',
-    'https://polygon.llamarpc.com',
-  ],
-  42161: [
-    'https://arb1.arbitrum.io/rpc',
-    'https://rpc.ankr.com/arbitrum',
-    'https://arbitrum.llamarpc.com',
-  ],
-  8453: [
-    'https://mainnet.base.org',
-    'https://base.llamarpc.com',
-    'https://rpc.ankr.com/base',
-  ],
-  10: [
-    'https://mainnet.optimism.io',
-    'https://rpc.ankr.com/optimism',
-    'https://optimism.llamarpc.com',
-  ],
-  // Testnet
-  11155111: [
-    'https://rpc.ankr.com/eth_sepolia',
-    'https://ethereum-sepolia.publicnode.com',
-  ],
-  80002: [
-    'https://rpc-amoy.polygon.technology',
-    'https://polygon-amoy.g.alchemy.com/v2/demo',
-  ],
-  421614: [
-    'https://sepolia-rollup.arbitrum.io/rpc',
-    'https://arbitrum-sepolia.blockpi.network/v1/rpc/public',
-  ],
-  84532: [
-    'https://sepolia.base.org',
-    'https://base-sepolia.blockpi.network/v1/rpc/public',
-  ],
-  11155420: [
-    'https://sepolia.optimism.io',
-    'https://optimism-sepolia.blockpi.network/v1/rpc/public',
-  ],
-};
 
 export interface ChainBalance {
   chainId: number;
@@ -92,56 +12,113 @@ export interface ChainBalance {
 }
 
 /**
- * Check USDC balance on a single chain via public RPC with fallback providers.
+ * Execute ethereum RPC call via chrome.scripting in the active tab's MAIN world
+ */
+async function executeEthereumCall(method: string, params: any[]): Promise<any> {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs[0];
+      if (!activeTab?.id) {
+        reject(new Error('No active tab'));
+        return;
+      }
+
+      chrome.scripting.executeScript(
+        {
+          target: { tabId: activeTab.id },
+          world: 'MAIN',
+          func: (method: string, params: any[]) => {
+            if (typeof window.ethereum === 'undefined') {
+              return { error: 'MetaMask is not installed' };
+            }
+            return window.ethereum
+              .request({ method, params })
+              .then((result: any) => ({ result }))
+              .catch((err: any) => ({ error: err?.message || 'RPC call failed' }));
+          },
+          args: [method, params],
+        },
+        (results) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+
+          const result = results?.[0]?.result as any;
+          if (result?.error) {
+            reject(new Error(result.error));
+          } else if (result?.result !== undefined) {
+            resolve(result.result);
+          } else {
+            reject(new Error('No result returned'));
+          }
+        }
+      );
+    });
+  });
+}
+
+/**
+ * Check USDC balance on a single chain using MetaMask's wallet_switchEthereumChain + eth_call
  */
 export async function getUsdcBalanceOnChain(
   chainId: number,
   address: `0x${string}`,
   isTestnet: boolean = false
 ): Promise<ChainBalance> {
-  const VIEM_CHAINS: Record<number, Chain> = isTestnet
-    ? VIEM_CHAINS_TESTNET
-    : VIEM_CHAINS_MAINNET;
-
   const USDC_CHAINS = getActiveChains(isTestnet);
-
-  const chain = VIEM_CHAINS[chainId];
   const config = USDC_CHAINS.find((c) => c.chainId === chainId);
 
-  if (!chain || !config) {
+  if (!config) {
     throw new Error(`Unsupported chain: ${chainId}`);
   }
 
-  console.log(`  [BalanceCheck] → Querying ${config.name} (chain ${chainId})...`);
+  console.log(`  [BalanceCheck] → Querying ${config.name} (chain ${chainId}) via MetaMask...`);
 
-  // Create transports with fallback for reliability
-  const rpcUrls = RPC_URLS[chainId] || [];
-  const transports = rpcUrls.map(url => http(url, {
-    timeout: 10_000,
-    retryCount: 2,
-    retryDelay: 1000,
-  }));
+  try {
+    // Switch to the target chain
+    await executeEthereumCall('wallet_switchEthereumChain', [
+      { chainId: `0x${chainId.toString(16)}` }
+    ]);
 
-  const client = createPublicClient({
-    chain,
-    transport: transports.length > 1 ? fallback(transports) : transports[0],
-  });
+    // Encode the balanceOf call
+    const data = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [address],
+    });
 
-  const balanceRaw = await client.readContract({
-    address: config.usdcAddress,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: [address],
-  });
+    // Make the eth_call
+    const result = await executeEthereumCall('eth_call', [
+      {
+        to: config.usdcAddress,
+        data,
+      },
+      'latest',
+    ]);
 
-  const balance = Number(formatUnits(balanceRaw, config.usdcDecimals));
-  console.log(`  [BalanceCheck] → ${config.name}: $${balance.toFixed(2)} USDC`);
+    // Handle empty response (contract doesn't exist or call failed)
+    if (!result || result === '0x' || result === '0x0') {
+      console.log(`  [BalanceCheck] ✓ ${config.name}: $0.00 USDC (no balance or contract not found)`);
+      return { chainId, chainName: config.name, balance: 0, balanceRaw: 0n };
+    }
 
-  return { chainId, chainName: config.name, balance, balanceRaw };
+    // Decode the result
+    const balanceRaw = BigInt(result);
+    const balance = Number(formatUnits(balanceRaw, config.usdcDecimals));
+    
+    console.log(`  [BalanceCheck] ✓ ${config.name}: $${balance.toFixed(2)} USDC`);
+
+    return { chainId, chainName: config.name, balance, balanceRaw };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.warn(`  [BalanceCheck] ✗ ${config.name} failed:`, message);
+    throw new Error(`${config.name}: ${message}`);
+  }
 }
 
 /**
- * Check USDC balances on ALL supported chains in parallel.
+ * Check USDC balances on ALL supported chains sequentially (to avoid MetaMask rate limits).
  * Returns results sorted by balance descending.
  */
 export async function getAllUsdcBalances(
@@ -153,21 +130,20 @@ export async function getAllUsdcBalances(
   const USDC_CHAINS = getActiveChains(isTestnet);
   const TARGET_CHAIN_ID = getTargetChainId(isTestnet);
 
-  const results = await Promise.allSettled(
-    USDC_CHAINS.map((c) => getUsdcBalanceOnChain(c.chainId, address, isTestnet))
-  );
-
   const balances: ChainBalance[] = [];
-  results.forEach((result, i) => {
-    if (result.status === 'fulfilled') {
-      balances.push(result.value);
-    } else {
+
+  // Check chains sequentially to avoid overwhelming MetaMask
+  for (const chain of USDC_CHAINS) {
+    try {
+      const balance = await getUsdcBalanceOnChain(chain.chainId, address, isTestnet);
+      balances.push(balance);
+    } catch (error) {
       console.warn(
-        `  [BalanceCheck] ✗ ${USDC_CHAINS[i].name} RPC failed:`,
-        result.reason?.message ?? result.reason
+        `  [BalanceCheck] ✗ ${chain.name} failed:`,
+        error instanceof Error ? error.message : error
       );
     }
-  });
+  }
 
   balances.sort((a, b) => b.balance - a.balance);
 
@@ -211,16 +187,11 @@ export function findBestSourceChain(
 
   if (best) {
     console.log(
-      `[BalanceCheck] ✓ Best source: ${best.chainName} ($${best.balance.toFixed(2)})`
+      `[BalanceCheck] → Found $${best.balance.toFixed(2)} on ${best.chainName}. Bridge required.`
     );
-    if (best.balance < requiredAmount) {
-      console.log(
-        `[BalanceCheck] ⚠ ${best.chainName} balance ($${best.balance.toFixed(2)}) < required ($${requiredAmount.toFixed(2)})`
-      );
-    }
     return { chain: best, needsBridge: true };
   }
 
-  console.log(`[BalanceCheck] ✗ No USDC found on any supported chain.`);
+  console.log('[BalanceCheck] ✗ No USDC found on any supported chain.');
   return { chain: null, needsBridge: false };
 }

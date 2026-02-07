@@ -11,6 +11,48 @@ export class MarketMatcher {
   }
 
   /**
+   * Fetch a single market by ID from Polymarket
+   */
+  async fetchMarketById(marketId: string): Promise<Market | null> {
+    try {
+      const response = await fetch(`${POLYMARKET_GAMMA_API}/markets/${marketId}`, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
+      }
+
+      const item = await response.json();
+
+      // Transform to our Market type
+      return {
+        id: (item as any).condition_id || (item as any).conditionId || (item as any).id,
+        question: (item as any).question || (item as any).title,
+        description: (item as any).description,
+        outcomes: (item as any).outcomes || (item as any).tokens?.map((t: any) => t.outcome) || ['Yes', 'No'],
+        outcomePrices:
+          (item as any).outcomePrices ||
+          (item as any).tokens?.map((t: any) => parseFloat(t.price) || 0.5) ||
+          [0.5, 0.5],
+        volume: parseFloat((item as any).volume) || 0,
+        liquidity: parseFloat((item as any).liquidity) || 0,
+        active: (item as any).active !== false && !(item as any).closed,
+        endDate: (item as any).endDate || (item as any).end_date_iso || (item as any).endDateIso,
+        tags: (item as any).tags || [],
+      };
+    } catch (error) {
+      console.error(`Error fetching market ${marketId}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Find markets matching the query
    */
   async findMarkets(query: string): Promise<MarketSearchResult[]> {
@@ -54,7 +96,7 @@ export class MarketMatcher {
       const data = await response.json();
 
       // Handle both array and object responses
-      const markets = Array.isArray(data) ? data : data.data || [];
+      const markets = Array.isArray(data) ? data : (data as any)?.data || [];
 
       // Transform to our Market type
       return markets.map((item: any) => ({

@@ -11,9 +11,10 @@ interface BetFormProps {
 
 export function BetForm({ marketId, walletAddress, onSubmit, isLoading }: BetFormProps) {
   const [betInput, setBetInput] = useState<string>('');
+  const [selectedSide, setSelectedSide] = useState<'yes' | 'no'>('yes');
   const [error, setError] = useState<string>('');
 
-  const parseBetCommand = (input: string): { amount: number; side: 'yes' | 'no' } | null => {
+  const parseBetCommand = (input: string): { amount: number; side?: 'yes' | 'no' } | null => {
     // Parse commands like: "5$ on yes", "$10 yes", "20 no", "yes 15", etc.
     const cleaned = input.toLowerCase().trim();
     
@@ -24,42 +25,93 @@ export function BetForm({ marketId, walletAddress, onSubmit, isLoading }: BetFor
     const amount = parseFloat(amountMatch[1]);
     if (isNaN(amount) || amount <= 0) return null;
     
-    // Extract side (yes/no)
+    // Extract side (yes/no) - optional, will use selectedSide if not specified
     const hasYes = /\byes\b/.test(cleaned);
     const hasNo = /\bno\b/.test(cleaned);
     
     if (hasYes && !hasNo) return { amount, side: 'yes' };
     if (hasNo && !hasYes) return { amount, side: 'no' };
     
-    return null;
+    // No side specified in command, return just amount
+    return { amount };
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[BetForm] 📝 Form submitted', { betInput });
     setError('');
 
     if (!betInput.trim()) {
+      console.warn('[BetForm] ✗ Empty input');
       setError('Enter a bet command (e.g., "5$ on yes")');
       return;
     }
 
     const parsed = parseBetCommand(betInput);
+    console.log('[BetForm] 🔍 Parsed command:', parsed);
+    
     if (!parsed) {
-      setError('Invalid format. Try: "5$ on yes" or "$10 no"');
+      console.warn('[BetForm] ✗ Invalid format');
+      setError('Invalid format. Try "5 yes" or just "5"');
       return;
     }
 
-    console.log(`[BetForm] 🎲 Placing bet: $${parsed.amount} on ${parsed.side.toUpperCase()}`);
-    onSubmit(parsed.side, parsed.amount);
+    // Use side from command if specified, otherwise use selected side
+    const finalSide = parsed.side || selectedSide;
+
+    console.log(`[BetForm] ✅ Valid bet: $${parsed.amount} on ${finalSide.toUpperCase()}`);
+    console.log('[BetForm] → Calling onSubmit callback...');
+    onSubmit(finalSide, parsed.amount);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="section">
-      <div className="section-title">Place Your Bet</div>
+    <form onSubmit={handleSubmit} className="bet-form">
+      {/* Side Selection */}
+      <div className="form-group" style={{ marginBottom: 12 }}>
+        <label className="form-label">Select Outcome</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setSelectedSide('yes')}
+            disabled={isLoading}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              border: selectedSide === 'yes' ? '2px solid #10b981' : '1px solid #d1d5db',
+              background: selectedSide === 'yes' ? '#ecfdf5' : '#fff',
+              color: selectedSide === 'yes' ? '#065f46' : '#6b7280',
+              borderRadius: 6,
+              fontWeight: selectedSide === 'yes' ? 600 : 400,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            ✓ Yes
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedSide('no')}
+            disabled={isLoading}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              border: selectedSide === 'no' ? '2px solid #ef4444' : '1px solid #d1d5db',
+              background: selectedSide === 'no' ? '#fef2f2' : '#fff',
+              color: selectedSide === 'no' ? '#991b1b' : '#6b7280',
+              borderRadius: 6,
+              fontWeight: selectedSide === 'no' ? 600 : 400,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s',
+            }}
+          >
+            ✗ No
+          </button>
+        </div>
+      </div>
 
       <div className="form-group">
         <label className="form-label" htmlFor="betInput">
-          Quick Bet Command
+          Bet Amount
         </label>
         <input
           id="betInput"
@@ -70,12 +122,12 @@ export function BetForm({ marketId, walletAddress, onSubmit, isLoading }: BetFor
             setBetInput(e.target.value);
             setError('');
           }}
-          placeholder='e.g., "5$ on yes" or "$10 no"'
+          placeholder='e.g., "5$" or "10" or "5 yes"'
           disabled={isLoading}
           autoComplete="off"
         />
         <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
-          Examples: "5$ on yes" • "$10 yes" • "20 no" • "yes 15"
+          Enter amount or include side: "5$ yes" • "$10 no" • "20"
         </div>
       </div>
 
@@ -116,7 +168,7 @@ export function BetForm({ marketId, walletAddress, onSubmit, isLoading }: BetFor
         background: '#f5f5f5',
         borderRadius: 4
       }}>
-        💡 <strong>Real Balance Checks:</strong> Extension will check your actual USDC balances across all chains and find bridge routes if needed.
+        💡 <strong>Real Transactions:</strong> You'll sign USDC approval and trade execution via MetaMask.
       </div>
     </form>
   );

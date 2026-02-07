@@ -146,11 +146,13 @@ export class WalletService {
       const events = await this.usdcContract.queryFilter(filter, fromBlock, currentBlock);
 
       for (const event of events) {
-        const [from, , amount] = (event as ethers.EventLog).args as [string, string, bigint];
-        console.log(`\n💰 Deposit detected: ${ethers.formatUnits(amount, USDC_DECIMALS)} USDC`);
-        console.log(`   From: ${from}`);
-        console.log(`   Tx: ${event.transactionHash}`);
-        await this.processDeposit(from, amount, event.transactionHash);
+        if (event instanceof ethers.EventLog) {
+          const [from, , amount] = event.args as unknown as [string, string, bigint];
+          console.log(`\n💰 Deposit detected: ${ethers.formatUnits(amount, USDC_DECIMALS)} USDC`);
+          console.log(`   From: ${from}`);
+          console.log(`   Tx: ${event.transactionHash}`);
+          await this.processDeposit(from, amount, event.transactionHash);
+        }
       }
 
       this.lastCheckedBlock = currentBlock;

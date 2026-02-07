@@ -9,7 +9,6 @@ export interface ChainUsdcConfig {
 // Mainnet
 // ---------------------------------------------------------------------------
 export const POLYGON_CHAIN_ID = 137;
-
 export const USDC_CHAINS: ChainUsdcConfig[] = [
   {
     chainId: 1,
@@ -20,29 +19,28 @@ export const USDC_CHAINS: ChainUsdcConfig[] = [
   {
     chainId: 137,
     name: 'Polygon',
-    usdcAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+    usdcAddress: '0x3c499c542cEF5E3811e1192ce70d8cc03d5c3359',
     usdcDecimals: 6,
   },
   {
     chainId: 42161,
     name: 'Arbitrum One',
-    usdcAddress: '0xaf88d065a77c8525ccd842bd5f7606569fb42d48',
+    usdcAddress: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
     usdcDecimals: 6,
   },
   {
     chainId: 8453,
     name: 'Base',
-    usdcAddress: '0x833589fCD6e073E2C0B4483a20Aca01c04a510bF',
+    usdcAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     usdcDecimals: 6,
   },
   {
     chainId: 10,
     name: 'Optimism',
-    usdcAddress: '0x0b3e28565e00a0a459efa680b591db37613f2a42',
+    usdcAddress: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
     usdcDecimals: 6,
   },
 ];
-
 // ---------------------------------------------------------------------------
 // Testnet  (Circle testnet USDC on each chain)
 // ---------------------------------------------------------------------------

@@ -11,8 +11,10 @@ import {
 import { User, prisma } from '@xmarket/db';
 import { TwitterBot, TweetWithAuthor } from '../x-client.js';
 import { TradeExecutor } from '../polymarket/trade-executor.js';
+import { MarketMatcher } from '../polymarket/market-matcher.js';
 
 const tradeExecutor = new TradeExecutor();
+const marketMatcher = new MarketMatcher();
 
 export async function handleBetCommand(
   tweet: TweetWithAuthor,
@@ -50,11 +52,29 @@ export async function handleBetCommand(
   let price: number;
 
   if (command.marketId) {
-    // TODO: Fetch market by short ID
-    await bot.reply(tweet.id, '❌ Betting on specific market IDs coming soon. Use the last shown market for now.');
-    return;
+    // Fetch market by ID
+    const market = await marketMatcher.fetchMarketById(command.marketId);
+    
+    if (!market) {
+      await bot.reply(tweet.id, `❌ Market not found with ID: ${command.marketId}`);
+      return;
+    }
+
+    if (!market.active) {
+      await bot.reply(tweet.id, `❌ Market is closed: ${market.question}`);
+      return;
+    }
+
+    marketId = market.id;
+    marketTitle = market.question;
+    price = command.side === 'yes' ? market.outcomePrices[0] : market.outcomePrices[1];
   } else {
     // Get last shown markets
+    if (!user.xUserId) {
+      await bot.reply(tweet.id, '❌ Unable to retrieve user context.');
+      return;
+    }
+
     const context = await prisma.userContext.findUnique({
       where: { xUserId: user.xUserId },
     });

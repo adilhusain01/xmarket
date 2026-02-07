@@ -6,20 +6,41 @@ import type { BetFlowResult } from '../lib/bet-service';
 interface BetFlowStatusProps {
   preparation: BetFlowResult;
   onExecuteBridge?: () => void;
+  onPlaceBet?: () => void;
   isExecuting?: boolean;
 }
 
-export function BetFlowStatus({ preparation, onExecuteBridge, isExecuting }: BetFlowStatusProps) {
+export function BetFlowStatus({ preparation, onExecuteBridge, onPlaceBet, isExecuting }: BetFlowStatusProps) {
   const { status, polygonBalance, sourceChain, allBalances, bestRoute, error } = preparation;
 
   // Ready to bet directly on Polygon
   if (status === 'ready') {
     return (
-      <div className="status-message status-success">
-        <div style={{ fontWeight: 600 }}>✓ Ready to Place Bet</div>
-        <div style={{ fontSize: 12, marginTop: 4 }}>
-          Your Polygon balance (${polygonBalance.toFixed(2)}) is sufficient.
+      <div className="section">
+        <div className="status-message status-success">
+          <div style={{ fontWeight: 600 }}>✓ Ready to Place Bet</div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>
+            Your Polygon balance (${polygonBalance.toFixed(2)}) is sufficient.
+          </div>
         </div>
+        
+        {onPlaceBet && (
+          <button
+            className="btn btn-primary btn-full"
+            onClick={onPlaceBet}
+            disabled={isExecuting}
+            style={{ marginTop: 12 }}
+          >
+            {isExecuting ? (
+              <>
+                <div className="spinner" style={{ marginRight: 8 }}></div>
+                Placing bet on Polymarket...
+              </>
+            ) : (
+              'Execute Bet on Polymarket'
+            )}
+          </button>
+        )}
       </div>
     );
   }

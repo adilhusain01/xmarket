@@ -8,6 +8,7 @@ import { WalletStatus } from './components/WalletStatus';
 import { BetForm } from './components/BetForm';
 import { BetFlowStatus } from './components/BetFlowStatus';
 import { findMarketsForTweet } from './lib/market-matcher';
+import { executeBet } from './lib/polymarket-executor';
 import { useBetFlow } from './hooks/useBetFlow';
 import { useWallet } from './hooks/useWallet';
 
@@ -42,6 +43,9 @@ function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [isLoadingMarkets, setIsLoadingMarkets] = useState(false);
+  const [isBetting, setIsBetting] = useState(false);
+  const [betError, setBetError] = useState<string | null>(null);
+  const [betSide, setBetSide] = useState<'yes' | 'no'>('yes');
 
   // Wallet hook (MetaMask)
   const { address, isConnected, init: initWallet } = useWallet();
@@ -108,9 +112,18 @@ function App() {
     }
   }
 
-  async function handleBetSubmit(_side: 'yes' | 'no', amount: number) {
-    if (!selectedMarketId || !address) return;
+  async function handleBetSubmit(side: 'yes' | 'no', amount: number) {
+    console.log('[App] 🎲 handleBetSubmit called', { side, amount, selectedMarketId, address });
+    
+    if (!selectedMarketId || !address) {
+      console.warn('[App] ✗ Missing required data:', { selectedMarketId, address });
+      return;
+    }
 
+    // Store the side for use when placing the bet
+    setBetSide(side);
+
+    console.log('[App] → Calling prepare...');
     await prepare(amount, address as `0x${string}`, false);
   }
 
@@ -118,6 +131,64 @@ function App() {
     alert(
       'Bridge execution requires wallet interaction. This will be implemented in the next phase.'
     );
+  }
+
+  async function handlePlaceBet() {
+    if (!selectedMarketId || !preparation || !address) {
+      console.error('[App] Cannot place bet: missing data');
+      return;
+    }
+
+    console.log('[App] 🎯 Placing bet on Polymarket...', {
+      marketId: selectedMarketId,
+      amount: preparation.amountUsd,
+      side: betSide,
+    });
+
+    setIsBetting(true);
+    setBetError(null);
+
+    try {
+      const result = await executeBet(
+        selectedMarketId,
+        betSide,
+        preparation.amountUsd,
+        address as `0x${string}`
+      );
+
+      if (result.success) {
+        console.log('[App] ✅ Bet placed successfully!', result);
+        
+        if (result.step === 'completed') {
+          alert(
+            `✅ Bet Executed Successfully!\n\n` +
+            `Market: ${selectedMarketId}\n` +
+            `Amount: $${preparation.amountUsd.toFixed(2)}\n` +
+            `Side: ${betSide.toUpperCase()}\n` +
+            `Order ID: ${result.txHash}\n\n` +
+            `Your bet has been placed on Polymarket!`
+          );
+        } else {
+          alert(
+            `✅ Bet Prepared Successfully!\n\n` +
+            `Market: ${selectedMarketId}\n` +
+            `Amount: $${preparation.amountUsd.toFixed(2)}\n` +
+            `Side: ${betSide.toUpperCase()}\n\n` +
+            `${result.txHash ? `Approval TX: ${result.txHash}\n\n` : ''}` +
+            `Processing order...`
+          );
+        }
+      } else {
+        console.error('[App] ✗ Bet failed:', result.error);
+        setBetError(result.error || 'Failed to place bet');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[App] ✗ Bet execution error:', errorMessage);
+      setBetError(errorMessage);
+    } finally {
+      setIsBetting(false);
+    }
   }
 
   return (
@@ -195,7 +266,10 @@ function App() {
                 onExecuteBridge={
                   preparation.status === 'needs-bridge' ? handleExecuteBridge : undefined
                 }
-                isExecuting={isLoading}
+                onPlaceBet={
+                  preparation.status === 'ready' ? handlePlaceBet : undefined
+                }
+                isExecuting={isLoading || isBetting}
               />
             )}
 
@@ -203,6 +277,13 @@ function App() {
               <div className="status-message status-error">
                 <div style={{ fontWeight: 600 }}>Error</div>
                 <div style={{ fontSize: 12, marginTop: 4 }}>{error}</div>
+              </div>
+            )}
+
+            {betError && (
+              <div className="status-message status-error">
+                <div style={{ fontWeight: 600 }}>Bet Execution Error</div>
+                <div style={{ fontSize: 12, marginTop: 4 }}>{betError}</div>
               </div>
             )}
 

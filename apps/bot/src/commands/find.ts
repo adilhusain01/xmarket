@@ -29,26 +29,30 @@ export async function handleFindCommand(
   }
 
   // Store last shown markets for context-aware betting
-  await prisma.userContext.upsert({
-    where: { xUserId: user.xUserId },
-    create: {
-      xUserId: user.xUserId,
-      lastMarkets: results.slice(0, 3).map((r) => ({
-        id: r.market.id,
-        question: r.market.question,
-        yesPrice: r.market.outcomePrices[0],
-        noPrice: r.market.outcomePrices[1],
-      })),
-    },
-    update: {
-      lastMarkets: results.slice(0, 3).map((r) => ({
-        id: r.market.id,
-        question: r.market.question,
-        yesPrice: r.market.outcomePrices[0],
-        noPrice: r.market.outcomePrices[1],
-      })),
-    },
-  });
+  if (!user.xUserId) {
+    console.warn('User has no xUserId, skipping context storage');
+  } else {
+    await prisma.userContext.upsert({
+      where: { xUserId: user.xUserId },
+      create: {
+        xUserId: user.xUserId,
+        lastMarkets: results.slice(0, 3).map((r) => ({
+          id: r.market.id,
+          question: r.market.question,
+          yesPrice: r.market.outcomePrices[0],
+          noPrice: r.market.outcomePrices[1],
+        })),
+      },
+      update: {
+        lastMarkets: results.slice(0, 3).map((r) => ({
+          id: r.market.id,
+          question: r.market.question,
+          yesPrice: r.market.outcomePrices[0],
+          noPrice: r.market.outcomePrices[1],
+        })),
+      },
+    });
+  }
 
   // Format response
   const topMarket = results[0].market;
