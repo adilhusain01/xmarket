@@ -290,6 +290,7 @@ async function getBestOrder(tokenId: string, side: 'buy'): Promise<any> {
   }
 
   const book = await response.json();
+  console.log('[Polymarket] Orderbook response:', book);
   
   // For buying, we want the best ask (sell order)
   const orders = side === 'buy' ? book.asks : book.bids;
@@ -299,7 +300,9 @@ async function getBestOrder(tokenId: string, side: 'buy'): Promise<any> {
   }
 
   // Return the best order (first in the list)
-  return orders[0];
+  const bestOrder = orders[0];
+  console.log('[Polymarket] Best order structure:', bestOrder);
+  return bestOrder;
 }
 
 /**
@@ -311,6 +314,26 @@ async function fillOrder(
   walletAddress: string
 ): Promise<string> {
   console.log('[Polymarket] Filling order on-chain...');
+  console.log('[Polymarket] Order details:', {
+    salt: order.salt,
+    maker: order.maker,
+    signer: order.signer,
+    taker: order.taker,
+    tokenID: order.tokenID,
+    makerAmount: order.makerAmount,
+    takerAmount: order.takerAmount,
+    expiration: order.expiration,
+    nonce: order.nonce,
+    feeRateBps: order.feeRateBps,
+    side: order.side,
+    signatureType: order.signatureType,
+    signature: order.signature,
+  });
+
+  // Validate required fields
+  if (!order.salt || !order.maker || !order.tokenID || !order.makerAmount || !order.takerAmount) {
+    throw new Error(`Invalid order structure: missing required fields. Order: ${JSON.stringify(order)}`);
+  }
 
   // Encode fillOrder call
   const data = encodeFunctionData({
@@ -320,18 +343,18 @@ async function fillOrder(
       {
         salt: BigInt(order.salt),
         maker: order.maker,
-        signer: order.signer,
-        taker: order.taker,
+        signer: order.signer || order.maker,
+        taker: order.taker || '0x0000000000000000000000000000000000000000',
         tokenId: BigInt(order.tokenID),
         makerAmount: BigInt(order.makerAmount),
         takerAmount: BigInt(order.takerAmount),
-        expiration: BigInt(order.expiration),
-        nonce: BigInt(order.nonce),
-        feeRateBps: BigInt(order.feeRateBps),
+        expiration: BigInt(order.expiration || 0),
+        nonce: BigInt(order.nonce || 0),
+        feeRateBps: BigInt(order.feeRateBps || 0),
         side: order.side === 'BUY' ? 0 : 1,
-        signatureType: order.signatureType,
+        signatureType: order.signatureType || 0,
       },
-      order.signature as `0x${string}`,
+      (order.signature || '0x') as `0x${string}`,
       BigInt(fillAmount),
     ],
   });
